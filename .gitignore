@@ -32,4 +32,5 @@
 *.dSYM/
 
 # imgscale
-imgscale
+jpgscale
+pngscale

@@ -1,7 +1,8 @@
 CFLAGS += -Os -Wall -pedantic
-LDLIBS += -lpng -ljpeg
 
-imgscale: resample.o imgscale.c
-	$(CC) $(CFLAGS) resample.o imgscale.c -o $@ $(LDLIBS)
+jpgscale: resample.o jpgscale.c
+	$(CC) $(CFLAGS) resample.o jpgscale.c -o $@ -ljpeg
+pngscale: resample.o pngscale.c
+		$(CC) $(CFLAGS) resample.o pngscale.c -o $@ -lpng
 clean:
-	rm -f resample.o imgscale
+	rm -f resample.o jpgscale
