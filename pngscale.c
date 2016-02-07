@@ -32,7 +32,7 @@ static void fix_ratio(uint32_t sw, uint32_t sh, uint32_t *dw, uint32_t *dh)
   * case.
   */
 static void png_interlaced(png_structp rpng, png_infop rinfo, png_structp wpng,
-	png_infop winfo, int opts)
+	png_infop winfo)
 {
 	uint8_t **sl, *yscaled, *out;
 	uint32_t i, in_width, in_height, out_width, out_height;
@@ -60,8 +60,8 @@ static void png_interlaced(png_structp rpng, png_infop rinfo, png_structp wpng,
 
 	for (i=0; i<out_height; i++) {
 		yscaler_prealloc_scale(in_height, out_height, sl, yscaled, i,
-			in_width, cmp, opts);
-		xscale(yscaled, in_width, out, out_width, cmp, opts);
+			in_width, cmp);
+		xscale(yscaled, in_width, out, out_width, cmp);
 		png_write_row(wpng, out);
 	}
 
@@ -74,7 +74,7 @@ static void png_interlaced(png_structp rpng, png_infop rinfo, png_structp wpng,
 }
 
 static void png_noninterlaced(png_structp rpng, png_infop rinfo,
-	png_structp wpng, png_infop winfo, int opts)
+	png_structp wpng, png_infop winfo)
 {
 	uint32_t i, in_width, in_height, out_width, out_height;
 	uint8_t *inbuf, *outbuf, *tmp;
@@ -97,9 +97,9 @@ static void png_noninterlaced(png_structp rpng, png_infop rinfo,
 	for(i=0; i<out_height; i++) {
 		while ((tmp = yscaler_next(&ys))) {
 			png_read_row(rpng, inbuf, NULL);
-			xscale(inbuf, in_width, tmp, out_width, cmp, opts);
+			xscale(inbuf, in_width, tmp, out_width, cmp);
 		}
-		yscaler_scale(&ys, outbuf, out_width, cmp, opts, i);
+		yscaler_scale(&ys, outbuf, i);
 		png_write_row(wpng, outbuf);
 	}
 
@@ -114,7 +114,6 @@ static void png(FILE *input, FILE *output, uint32_t width, uint32_t height)
 	png_infop rinfo, winfo;
 	png_uint_32 in_width, in_height;
 	png_byte ctype;
-	int opts;
 
 	rpng = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
 
@@ -132,9 +131,7 @@ static void png(FILE *input, FILE *output, uint32_t width, uint32_t height)
 	png_set_expand(rpng);
 
 	ctype = png_get_color_type(rpng, rinfo);
-	opts = 0;
 	if (ctype == PNG_COLOR_TYPE_RGB) {
-		opts = OIL_FILLER;
 		png_set_filler(rpng, 0, PNG_FILLER_AFTER);
 	}
 	png_read_update_info(rpng, rinfo);
@@ -152,16 +149,16 @@ static void png(FILE *input, FILE *output, uint32_t width, uint32_t height)
 
 	png_write_info(wpng, winfo);
 
-	if (opts == OIL_FILLER) {
+	if (ctype == PNG_COLOR_TYPE_RGB) {
 		png_set_filler(wpng, 0, PNG_FILLER_AFTER);
 	}
 
 	switch (png_get_interlace_type(rpng, rinfo)) {
 	case PNG_INTERLACE_NONE:
-		png_noninterlaced(rpng, rinfo, wpng, winfo, opts);
+		png_noninterlaced(rpng, rinfo, wpng, winfo);
 		break;
 	case PNG_INTERLACE_ADAM7:
-		png_interlaced(rpng, rinfo, wpng, winfo, opts);
+		png_interlaced(rpng, rinfo, wpng, winfo);
 		break;
 	}
 

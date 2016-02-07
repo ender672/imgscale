@@ -26,18 +26,16 @@ static void fix_ratio(uint32_t sw, uint32_t sh, uint32_t *dw, uint32_t *dh)
 	}
 }
 
-static void jpeg(FILE *input, FILE *output, uint32_t width, uint32_t height)
+static void jpeg(FILE *input, FILE *output, uint32_t width_out,
+	uint32_t height_out)
 {
 	struct jpeg_decompress_struct dinfo;
 	struct jpeg_compress_struct cinfo;
 	struct jpeg_error_mgr jerr;
-	uint32_t i, scale_factor;
-	uint8_t *inbuf, *outbuf, *tmp;
-	size_t inbuf_len, outbuf_len;
-	int opts, cmp;
+	uint32_t i, scale_factor, width_in;
+	uint8_t cmp, *psl_buf, *psl_pos0, *outbuf, *tmp;
+	size_t outbuf_len, psl_len, psl_offset;
 	struct yscaler ys;
-
-	opts = 0;
 
 	dinfo.err = jpeg_std_error(&jerr);
 	jpeg_create_decompress(&dinfo);
@@ -47,13 +45,13 @@ static void jpeg(FILE *input, FILE *output, uint32_t width, uint32_t height)
 #ifdef JCS_EXTENSIONS
 	if (dinfo.out_color_space == JCS_RGB) {
 		dinfo.out_color_space = JCS_EXT_RGBX;
-		opts = OIL_FILLER;
 	}
 #endif
 
-	fix_ratio(dinfo.image_width, dinfo.image_height, &width, &height);
+	fix_ratio(dinfo.image_width, dinfo.image_height, &width_out,
+		&height_out);
 
-	scale_factor = dinfo.image_width / width;
+	scale_factor = dinfo.image_width / width_out;
 	if (scale_factor >= 8 * 4) {
 		dinfo.scale_denom = 8;
 	} else if (scale_factor >= 4 * 4) {
@@ -65,16 +63,18 @@ static void jpeg(FILE *input, FILE *output, uint32_t width, uint32_t height)
 	jpeg_start_decompress(&dinfo);
 
 	cmp = dinfo.output_components;
-	inbuf_len = dinfo.output_width * cmp;
-	inbuf = malloc(inbuf_len);
-	outbuf_len = width * cmp;
+	width_in = dinfo.output_width;
+	psl_len = padded_sl_len_offset(width_in, width_out, cmp, &psl_offset);
+	psl_buf = malloc(psl_len);
+	psl_pos0 = psl_buf + psl_offset;
+	outbuf_len = width_out * cmp;
 	outbuf = malloc(outbuf_len);
 
 	cinfo.err = dinfo.err;
 	jpeg_create_compress(&cinfo);
 	jpeg_stdio_dest(&cinfo, output);
-	cinfo.image_width = width;
-	cinfo.image_height = height;
+	cinfo.image_width = width_out;
+	cinfo.image_height = height_out;
 	cinfo.input_components = cmp;
 	cinfo.in_color_space = dinfo.out_color_space;
 
@@ -82,13 +82,14 @@ static void jpeg(FILE *input, FILE *output, uint32_t width, uint32_t height)
 	jpeg_set_quality(&cinfo, 95, FALSE);
 	jpeg_start_compress(&cinfo, TRUE);
 
-	yscaler_init(&ys, dinfo.output_height, height, outbuf_len);
-	for(i=0; i<height; i++) {
+	yscaler_init(&ys, dinfo.output_height, height_out, outbuf_len);
+	for(i=0; i<height_out; i++) {
 		while ((tmp = yscaler_next(&ys))) {
-			jpeg_read_scanlines(&dinfo, &inbuf, 1);
-			xscale(inbuf, dinfo.output_width, tmp, width, cmp, opts);
+			jpeg_read_scanlines(&dinfo, &psl_pos0, 1);
+			padded_sl_extend_edges(psl_buf, width_in, psl_offset, cmp);
+			xscale_padded(psl_pos0, width_in, tmp, width_out, cmp);
 		}
-		yscaler_scale(&ys, outbuf, width, cmp, opts, i);
+		yscaler_scale(&ys, outbuf, i);
 		jpeg_write_scanlines(&cinfo, (JSAMPARRAY)&outbuf, 1);
 	}
 
@@ -97,7 +98,7 @@ static void jpeg(FILE *input, FILE *output, uint32_t width, uint32_t height)
 
 	jpeg_finish_decompress(&dinfo);
 	jpeg_destroy_decompress(&dinfo);
-	free(inbuf);
+	free(psl_buf);
 	free(outbuf);
 	yscaler_free(&ys);
 }

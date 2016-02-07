@@ -5,4 +5,4 @@ jpgscale: resample.o jpgscale.c
 pngscale: resample.o pngscale.c
 		$(CC) $(CFLAGS) resample.o pngscale.c -o $@ -lpng
 clean:
-	rm -f resample.o jpgscale
+	rm -f resample.o jpgscale pngscale
