@@ -5,36 +5,16 @@
 #include <string.h>
 #include <jpeglib.h>
 
-static void fix_ratio(uint32_t sw, uint32_t sh, uint32_t *dw, uint32_t *dh)
-{
-	double x, y;
-
-	x = *dw / (double)sw;
-	y = *dh / (double)sh;
-
-	if (x && (!y || x<y)) {
-		*dh = (sh * x) + 0.5;
-	} else {
-		*dw = (sw * y) + 0.5;
-	}
-
-	if (!*dh) {
-		*dh = 1;
-	}
-	if (!*dw) {
-		*dw = 1;
-	}
-}
-
 static void jpeg(FILE *input, FILE *output, uint32_t width_out,
 	uint32_t height_out)
 {
 	struct jpeg_decompress_struct dinfo;
 	struct jpeg_compress_struct cinfo;
 	struct jpeg_error_mgr jerr;
-	uint32_t i, scale_factor, width_in;
-	uint8_t cmp, *psl_buf, *psl_pos0, *outbuf, *tmp;
-	size_t outbuf_len, psl_len, psl_offset;
+	uint32_t i;
+	uint8_t cmp, *psl_pos0, *outbuf, *tmp;
+	size_t outbuf_len;
+	struct xscaler xs;
 	struct yscaler ys;
 	jpeg_saved_marker_ptr marker;
 
@@ -60,23 +40,11 @@ static void jpeg(FILE *input, FILE *output, uint32_t width_out,
 
 	fix_ratio(dinfo.image_width, dinfo.image_height, &width_out,
 		&height_out);
-
-	scale_factor = dinfo.image_width / width_out;
-	if (scale_factor >= 8 * 4) {
-		dinfo.scale_denom = 8;
-	} else if (scale_factor >= 4 * 4) {
-		dinfo.scale_denom = 4;
-	} else if (scale_factor >= 2 * 4) {
-		dinfo.scale_denom = 2;
-	}
+	dinfo.scale_denom = cubic_scale_denom(dinfo.image_width, width_out);
 
 	jpeg_start_decompress(&dinfo);
 
 	cmp = dinfo.output_components;
-	width_in = dinfo.output_width;
-	psl_len = padded_sl_len_offset(width_in, width_out, cmp, &psl_offset);
-	psl_buf = malloc(psl_len);
-	psl_pos0 = psl_buf + psl_offset;
 	outbuf_len = width_out * cmp;
 	outbuf = malloc(outbuf_len);
 
@@ -98,14 +66,15 @@ static void jpeg(FILE *input, FILE *output, uint32_t width_out,
 			marker->data_length);
 	}
 
+	xscaler_init(&xs, dinfo.output_width, width_out, cmp, 1);
 	yscaler_init(&ys, dinfo.output_height, height_out, outbuf_len);
+	psl_pos0 = xscaler_psl_pos0(&xs);
 	for(i=0; i<height_out; i++) {
 		while ((tmp = yscaler_next(&ys))) {
 			jpeg_read_scanlines(&dinfo, &psl_pos0, 1);
-			padded_sl_extend_edges(psl_buf, width_in, psl_offset, cmp);
-			xscale_padded(psl_pos0, width_in, tmp, width_out, cmp);
+			xscaler_scale(&xs, tmp);
 		}
-		yscaler_scale(&ys, outbuf, i);
+		yscaler_scale(&ys, outbuf, i, cmp, 1);
 		jpeg_write_scanlines(&cinfo, (JSAMPARRAY)&outbuf, 1);
 	}
 
@@ -114,9 +83,9 @@ static void jpeg(FILE *input, FILE *output, uint32_t width_out,
 
 	jpeg_finish_decompress(&dinfo);
 	jpeg_destroy_decompress(&dinfo);
-	free(psl_buf);
 	free(outbuf);
 	yscaler_free(&ys);
+	xscaler_free(&xs);
 }
 
 int main(int argc, char *argv[])
