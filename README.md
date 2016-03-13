@@ -6,5 +6,5 @@ command-line tool for scaling images
 Resize in.jpg to fit in a 400x800 box while preserving the aspect ratio.
 
 ```bash
-imgscale 400 800 in.jpg > out.jpg
+imgscale 400 800 < in.jpg > out.jpg
 ```
