@@ -36,10 +36,20 @@ static void jpeg(FILE *input, FILE *output, uint32_t width_out,
 	uint8_t cmp, *psl_buf, *psl_pos0, *outbuf, *tmp;
 	size_t outbuf_len, psl_len, psl_offset;
 	struct yscaler ys;
+	jpeg_saved_marker_ptr marker;
 
 	dinfo.err = jpeg_std_error(&jerr);
 	jpeg_create_decompress(&dinfo);
 	jpeg_stdio_src(&dinfo, input);
+
+	/* Save custom headers for the compressor, but ignore APP0 & APP14 so
+	 * libjpeg can handle them.
+	 */
+	jpeg_save_markers(&dinfo, JPEG_COM, 0xFFFF);
+	for (i=1; i<14; i++) {
+		jpeg_save_markers(&dinfo, JPEG_APP0+i, 0xFFFF);
+	}
+	jpeg_save_markers(&dinfo, JPEG_APP0+15, 0xFFFF);
 	jpeg_read_header(&dinfo, TRUE);
 
 #ifdef JCS_EXTENSIONS
@@ -81,6 +91,12 @@ static void jpeg(FILE *input, FILE *output, uint32_t width_out,
 	jpeg_set_defaults(&cinfo);
 	jpeg_set_quality(&cinfo, 95, FALSE);
 	jpeg_start_compress(&cinfo, TRUE);
+
+	/* Write custom headers */
+	for (marker=dinfo.marker_list; marker; marker=marker->next) {
+		jpeg_write_marker(&cinfo, marker->marker, marker->data,
+			marker->data_length);
+	}
 
 	yscaler_init(&ys, dinfo.output_height, height_out, outbuf_len);
 	for(i=0; i<height_out; i++) {
