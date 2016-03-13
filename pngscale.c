@@ -5,27 +5,6 @@
 #include <string.h>
 #include <png.h>
 
-static void fix_ratio(uint32_t sw, uint32_t sh, uint32_t *dw, uint32_t *dh)
-{
-	double x, y;
-
-	x = *dw / (double)sw;
-	y = *dh / (double)sh;
-
-	if (x && (!y || x<y)) {
-		*dh = (sh * x) + 0.5;
-	} else {
-		*dw = (sw * y) + 0.5;
-	}
-
-	if (!*dh) {
-		*dh = 1;
-	}
-	if (!*dw) {
-		*dw = 1;
-	}
-}
-
 /** Interlaced PNGs need to be fully decompressed before we can scale the image.
   *
   * We scale along the y-axis first because it is more memory efficient in this
@@ -38,6 +17,7 @@ static void png_interlaced(png_structp rpng, png_infop rinfo, png_structp wpng,
 	uint32_t i, in_width, in_height, out_width, out_height;
 	size_t buf_len, outbuf_len;
 	png_byte cmp;
+	struct xscaler xs;
 
 	in_width = png_get_image_width(rpng, rinfo);
 	in_height = png_get_image_height(rpng, rinfo);
@@ -51,26 +31,27 @@ static void png_interlaced(png_structp rpng, png_infop rinfo, png_structp wpng,
 	for (i=0; i<in_height; i++) {
 		sl[i] = malloc(buf_len);
 	}
-	yscaled = malloc(buf_len);
 
 	outbuf_len = out_width * cmp;
 	out = malloc(outbuf_len);
+	xscaler_init(&xs, in_width, out_width, cmp, 1);
+	yscaled = xscaler_psl_pos0(&xs);
 
 	png_read_image(rpng, sl);
 
 	for (i=0; i<out_height; i++) {
 		yscaler_prealloc_scale(in_height, out_height, sl, yscaled, i,
-			in_width, cmp);
-		xscale(yscaled, in_width, out, out_width, cmp);
+			in_width, cmp, 1);
+		xscaler_scale(&xs, out);
 		png_write_row(wpng, out);
 	}
 
 	for (i=0; i<in_height; i++) {
 		free(sl[i]);
 	}
-	free(yscaled);
 	free(sl);
 	free(out);
+	xscaler_free(&xs);
 }
 
 static void png_noninterlaced(png_structp rpng, png_infop rinfo,
@@ -78,7 +59,8 @@ static void png_noninterlaced(png_structp rpng, png_infop rinfo,
 {
 	uint32_t i, in_width, in_height, out_width, out_height;
 	uint8_t *inbuf, *outbuf, *tmp;
-	size_t inbuf_len, outbuf_len;
+	size_t outbuf_len;
+	struct xscaler xs;
 	struct yscaler ys;
 	png_byte cmp;
 
@@ -88,24 +70,24 @@ static void png_noninterlaced(png_structp rpng, png_infop rinfo,
 	out_height = png_get_image_height(wpng, winfo);
 	cmp = png_get_channels(rpng, rinfo);
 
-	inbuf_len = in_width * cmp;
-	inbuf = malloc(inbuf_len);
 	outbuf_len = out_width * cmp;
 	outbuf = malloc(outbuf_len);
 
+	xscaler_init(&xs, in_width, out_width, cmp, 1);
 	yscaler_init(&ys, in_height, out_height, outbuf_len);
+	inbuf = xscaler_psl_pos0(&xs);
 	for(i=0; i<out_height; i++) {
 		while ((tmp = yscaler_next(&ys))) {
 			png_read_row(rpng, inbuf, NULL);
-			xscale(inbuf, in_width, tmp, out_width, cmp);
+			xscaler_scale(&xs, tmp);
 		}
-		yscaler_scale(&ys, outbuf, i);
+		yscaler_scale(&ys, outbuf, i, cmp, 1);
 		png_write_row(wpng, outbuf);
 	}
 
-	free(inbuf);
 	free(outbuf);
 	yscaler_free(&ys);
+	xscaler_free(&xs);
 }
 
 static void png(FILE *input, FILE *output, uint32_t width, uint32_t height)
